@@ -22,7 +22,7 @@ import tator
 # Classes
 # ----------------------------------------------------------------------------------------------------------------------
 
-# TODO allow user to specify the resolution of the images being downloaded, keep aspect resolution
+
 class DatasetDownloader:
     def __init__(self,
                  api_token: str,
@@ -31,7 +31,8 @@ class DatasetDownloader:
                  frac: float,
                  dataset_name: str,
                  output_dir: str,
-                 label_field: str or list):
+                 label_field: str or list,
+                 download_width: int = None):
         """
 
         :param api_token:
@@ -42,6 +43,7 @@ class DatasetDownloader:
         :param dataset_name:
         :param output_dir:
         :param label_field: Field name(s) to use as the label(s), can be a single field or a list
+        :param download_width: Width to resize images to during download (maintains aspect ratio), else full resolution
         """
         self.api = None
 
@@ -49,6 +51,7 @@ class DatasetDownloader:
         self.project_id = project_id
         self.search_string = search_string
         self.frac = frac
+        self.download_width = download_width
         
         # Support both single field and list of fields
         if isinstance(label_field, list):
@@ -181,11 +184,15 @@ class DatasetDownloader:
                 media = q_dict['id']
                 frame = 0
                 image_name = q_dict['name']
+                image_width = q_dict['width']
+                image_height = q_dict['height']
             elif q_type == "Localization":
                 # Localization object
                 media = q_dict['media']
                 frame = q_dict['frame']
                 image_name = f"{media}_{frame}.jpg"
+                image_width = None
+                image_height = None     # TODO
             else:
                 print(f"WARNING: Query object is not a media or localization\nType:{type(q_type)}")
                 continue
@@ -196,6 +203,8 @@ class DatasetDownloader:
                 'frame': frame,
                 'image_name': image_name,
                 'image_path': os.path.abspath(f"{self.image_dir}/{image_name}"),
+                'image_width': image_width,
+                'image_height': image_height,
                 'x': x,
                 'y': y,
                 'width': width,
@@ -324,9 +333,20 @@ class DatasetDownloader:
                 frame_data = self.data[(self.data['media'] == item['media']) & 
                                        (self.data['frame'] == item['frame'])].iloc[0]
                 
-                # Get the image from Tator at full resolution
+                # Calculate dimensions maintaining aspect ratio if download_width is specified
+                if self.download_width and frame_data['image_width'] and frame_data['image_height']:
+                    original_width = frame_data['image_width']
+                    original_height = frame_data['image_height']
+                    # Calculate height to maintain aspect ratio
+                    height = int(original_height * (self.download_width / original_width))
+                    scale = f"{self.download_width}x{height}"
+                else:
+                    # Use original dimensions
+                    scale = "1024x768"
+                
+                # Get the image from Tator at the specified resolution
                 temp = self.api.get_frame(id=item['media'],
-                                          tile=f"{frame_data['width']}x{frame_data['height']}",
+                                          force_scale=scale,
                                           frames=[int(item['frame'])])
 
                 # Move the image to the correct directory
@@ -447,6 +467,9 @@ def main():
     parser.add_argument("--label_field", type=str, required=True, nargs='+',
                         help="Field name(s) to use as the label; can be single field or a list of fields")
     
+    parser.add_argument("--download_width", type=int, default=None,
+                        help="Width to resize images to when downloading (maintains aspect ratio)")
+    
     args = parser.parse_args()
 
     try:
@@ -465,7 +488,8 @@ def main():
                                        frac=args.frac,
                                        dataset_name=args.dataset_name,
                                        output_dir=output_dir,
-                                       label_field=label_field)
+                                       label_field=label_field,
+                                       download_width=args.download_width)
 
         # Download the data
         downloader.download_data()
