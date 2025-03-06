@@ -24,7 +24,8 @@ class FiftyOneDatasetViewer:
                  feature_columns=None, 
                  dataset_name=None, 
                  nickname=None, 
-                 custom_embeddings=None):
+                 custom_embeddings=None, 
+                 num_dims=2):
         """
         Initialize the FiftyOneDatasetViewer object
         
@@ -36,12 +37,14 @@ class FiftyOneDatasetViewer:
             param: dataset_name (str): Name of existing FiftyOne dataset to load
             param: nickname (str): Optional nickname for the dataset
             param: custom_embeddings (np.ndarray): Custom embeddings to use for visualization
+            param: num_dims (int): Number of dimensions for UMAP visualization
         """  
         self.image_dir = image_dir
         self.dataframe = dataframe
         self.image_path_column = image_path_column
         self.feature_columns = feature_columns or []
         self.custom_embeddings = custom_embeddings
+        self.num_dims = num_dims
         
         # Determine dataset name
         if dataset_name:
@@ -180,7 +183,7 @@ class FiftyOneDatasetViewer:
         return fob.compute_visualization(
             self.dataset,
             embeddings=embeddings,
-            num_dims=2,
+            num_dims=self.num_dims,
             method="umap",
             brain_key=self.brain_key,
             verbose=True,
@@ -255,6 +258,9 @@ def main():
                         
     parser.add_argument('--feature_columns', type=str, nargs='+',
                         help='Column names in dataframe to add as features')
+    
+    parser.add_argument('--num_dims', type=int, default=2, choices=[2, 3],
+                        help='Number of dimensions for UMAP visualization')
 
     args = parser.parse_args()
     
@@ -279,7 +285,11 @@ def main():
     if args.image_dir:
         if not os.path.isdir(args.image_dir):
             raise ValueError(f"Directory not found: {args.image_dir}")
-        viewer = FiftyOneDatasetViewer(image_dir=args.image_dir, nickname=args.nickname)
+        
+        # Load images from directory
+        viewer = FiftyOneDatasetViewer(image_dir=args.image_dir, 
+                                       nickname=args.nickname,
+                                       num_dims=args.num_dims)
         
     elif args.dataframe:
         # Load dataframe from file
@@ -296,17 +306,22 @@ def main():
             
         if args.image_path_column not in df.columns:
             raise ValueError(f"Image path column '{args.image_path_column}' not found in dataframe")
-            
+        
+        # Load dataframe
         viewer = FiftyOneDatasetViewer(
             dataframe=df,
             image_path_column=args.image_path_column,
             feature_columns=args.feature_columns,
             nickname=args.nickname,
+            num_dims=args.num_dims
         )
     else:
         if args.dataset_name not in fo.list_datasets():
             raise ValueError(f"Dataset not found: {args.dataset_name}")
-        viewer = FiftyOneDatasetViewer(dataset_name=args.dataset_name, nickname=args.nickname)
+        
+        # Load existing dataset
+        viewer = FiftyOneDatasetViewer(dataset_name=args.dataset_name, 
+                                       nickname=args.nickname)
 
     viewer.visualize()
 
