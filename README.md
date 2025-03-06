@@ -84,7 +84,7 @@ media_ids = ["123456", "78910"]
 downloader.download_data(media_ids, convert=False, extract=True, every_n_seconds=1.0)
 ```
 
-#### LabeledDataDownloader
+#### DatasetDownloader
 
 The `DatasetDownloader` class is used to download frames / images and their labels from TATOR, which can be used to
 create YOLO-formatted datasets. This class expects the encoded search string obtained from the Export Data utility 
