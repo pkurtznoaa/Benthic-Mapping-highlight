@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import random
 import argparse
@@ -17,13 +18,14 @@ import supervision as sv
 
 
 class YOLORegionCropper:
-    def __init__(self, dataset_path, output_dir=None, dataset_name=None):
+    def __init__(self, dataset_path, output_dir=None, dataset_name=None, format_class_names=False):
         """
         Initialize the YOLORegionCropper with a dataset path.
         
         :param dataset_path: Path to the YAML dataset configuration file
         :param output_dir: Directory where the classification dataset will be saved
         :param dataset_name: Name for the output dataset folder (default: "Cropped_Dataset")
+        :param format_class_names: Whether to format class names (removes special characters)
         """
         # Path to YAML dataset configuration file
         self.dataset_path = dataset_path
@@ -31,6 +33,8 @@ class YOLORegionCropper:
         self.dataset_data = None
         # List of class names
         self.classes = None
+        # Whether to format class names
+        self.format_class_names = format_class_names
         
         # Paths to train, validation, and test folders in the dataset
         self.train_path = None
@@ -56,14 +60,30 @@ class YOLORegionCropper:
         
         :return: None
         """
+        print("NOTE: Loading dataset...")
+        
+        special_characters = False
+        
+        # Check if the dataset file exists
         if not os.path.exists(self.dataset_path):
             raise FileNotFoundError("Dataset not found.")
 
         with open(self.dataset_path, 'r') as file:
             self.dataset_data = yaml.safe_load(file)
 
+        # Get the class names
         self.classes = self.dataset_data['names']
-
+        
+        # Check if there are any special characters in the class names
+        if any(re.search(r'[<>:"/\\|?*]', name) for name in self.classes):
+            special_characters = True
+            
+        # Format class names if specified
+        if special_characters and self.format_class_names:
+            self.classes = [re.sub(r'[<>:"/\\|?*]', '', name).strip() for name in self.classes]
+        else:
+            raise ValueError("Class names cannot contain special characters; use format_class_names to format them.")
+        
         # Process train path
         if isinstance(self.dataset_data.get('train'), str):
             self.train_path = self.dataset_data['train']
@@ -97,8 +117,10 @@ class YOLORegionCropper:
 
         :return: None
         """
-        images = {}
-        annotations = {}
+        print("NOTE: Converting dataset...")
+        
+        # Dictionary to store all dataset components
+        dataset_parts = []
 
         # Load train dataset if available
         if self.train_path:
@@ -111,10 +133,10 @@ class YOLORegionCropper:
                     annotations_directory_path=labels_path,
                     data_yaml_path=self.dataset_path,
                 )
-                # Update images and annotations
-                images.update(train.images)
-                annotations.update(train.annotations)
-                print(f"Added {len(train.images)} images from train dataset")
+                dataset_parts.append(train)
+                # Count the number of images
+                image_count = sum(1 for _ in train)
+                print(f"Added {image_count} images from train dataset")
                 
             except Exception as e:
                 print(f"Warning: Failed to load train dataset. Error: {str(e)}")
@@ -131,11 +153,10 @@ class YOLORegionCropper:
                     annotations_directory_path=labels_path,
                     data_yaml_path=self.dataset_path,
                 )
-                # Update images and annotations
-                images.update(valid.images)
-                annotations.update(valid.annotations)
-                
-                print(f"Added {len(valid.images)} images from validation dataset")
+                dataset_parts.append(valid)
+                # Count the number of images
+                image_count = sum(1 for _ in valid)
+                print(f"Added {image_count} images from validation dataset")
             except Exception as e:
                 print(f"Warning: Failed to load validation dataset. Error: {str(e)}")
 
@@ -150,24 +171,44 @@ class YOLORegionCropper:
                     annotations_directory_path=labels_path,
                     data_yaml_path=self.dataset_path,
                 )
-                # Update images and annotations
-                images.update(test.images)
-                annotations.update(test.annotations)
-                
-                print(f"Added {len(test.images)} images from test dataset")
+                dataset_parts.append(test)
+                # Count the number of images
+                image_count = sum(1 for _ in test)
+                print(f"Added {image_count} images from test dataset")
             except Exception as e:
                 print(f"Warning: Failed to load test dataset. Error: {str(e)}")
 
         # Check if any data was loaded
-        if not images or not annotations:
+        if not dataset_parts:
             raise ValueError("No data could be loaded. Please check your dataset paths.")
 
-        # Create the detection dataset
-        self.src_dataset = sv.DetectionDataset(classes=self.classes,
-                                               images=images,
-                                               annotations=annotations)
+        # Merge all datasets into a single dataset
+        # If there's only one part, use it directly
+        if len(dataset_parts) == 1:
+            self.src_dataset = dataset_parts[0]
+        else:
+            # Merge multiple datasets - first, collect all data
+            merged_images = {}
+            merged_annotations = {}
+            
+            for dataset in dataset_parts:
+                for img_path, image, annotation in dataset:
+                    merged_images[img_path] = image
+                    merged_annotations[img_path] = annotation
+            
+            # Create a new merged dataset
+            self.src_dataset = sv.DetectionDataset(
+                classes=self.classes,
+                images=merged_images,
+                annotations=merged_annotations
+            )
 
-        print(f"NOTE: Loaded dataset - {len(self.src_dataset)} detections found")
+        # Count total detections
+        detection_count = 0
+        for _, _, annotation in self.src_dataset:
+            detection_count += len(annotation.xyxy)
+
+        print(f"NOTE: Loaded dataset - {detection_count} detections found")
 
     def extract_crop(self, image, xyxy):
         """
@@ -234,16 +275,17 @@ class YOLORegionCropper:
         """
         # Count to track crops created
         total_crops = 0
+        total_images = 0
 
-        # Loop through all the images in the detection dataset
-        for image_path, image in tqdm(self.src_dataset.images.items(), desc="Creating crops"):
+        # Loop through all the images in the detection dataset using the recommended approach
+        for image_path, image, annotations in tqdm(self.src_dataset, desc="Creating crops"):
+            total_images += 1
 
-            # Get the image basename, corresponding detections
+            # Get the image basename
             image_name = os.path.basename(image_path).split(".")[0]
-            detections = self.src_dataset.annotations[image_path]
 
             # Loop through detections, crop, and then save in split folder
-            for i, (xyxy, class_id) in enumerate(zip(detections.xyxy, detections.class_id)):
+            for i, (xyxy, class_id) in enumerate(zip(annotations.xyxy, annotations.class_id)):
 
                 # Randomly assign the crop to train, valid or test
                 split = random.choices(['train', 'val', 'test'], weights=[70, 20, 10])[0]
@@ -253,11 +295,11 @@ class YOLORegionCropper:
 
                 if crop is not None:
                     class_name = self.src_dataset.classes[class_id]
-                    crop_name = f"{class_name}_{i}_{image_name}.jpeg"
+                    crop_name = f"{class_name}_{i}_{image_name}.jpg"
                     self.save_crop(split, class_name, crop_name, crop)
                     total_crops += 1
 
-        print(f"Created {total_crops} crops from {len(self.src_dataset.images)} images")
+        print(f"Created {total_crops} crops from {total_images} images")
 
     def write_classification_yaml(self):
         """
@@ -265,6 +307,8 @@ class YOLORegionCropper:
         
         :return: None
         """
+        print("NOTE: Writing classification dataset YAML...")
+        
         # Count classes and items per class
         class_counts = {class_name: {'train': 0, 'val': 0, 'test': 0} for class_name in self.classes}
         

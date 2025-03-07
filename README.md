@@ -19,6 +19,7 @@ pip install uv
 
 uv pip install -r requirements.txt
 
+# Install cuda nvcc, toolkit for your version (example: 11.8)
 conda install cuda-nvcc -c nvidia/label/cuda-11.8.0 -y
 conda install cudatoolkit=11.8 -c nvidia/label/cuda-11.8.0 -y
 
@@ -52,12 +53,14 @@ pip install uv
 
 uv pip install -e .
 
+# Install cuda nvcc, toolkit for your version (example: 11.8)
 conda install cuda-nvcc -c nvidia/label/cuda-11.8.0 -y
 conda install cudatoolkit=11.8 -c nvidia/label/cuda-11.8.0 -y
 
 # Example for torch 2.0.0 and torchvision 0.15.1 w/ CUDA 11.8
 uv pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 
+# ffmpeg for converting videos, extracting frames
 conda install ffmpeg
 
 # FiftyOne Plugins
