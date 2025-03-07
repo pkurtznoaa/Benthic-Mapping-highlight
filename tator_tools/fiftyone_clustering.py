@@ -25,6 +25,7 @@ class FiftyOneDatasetViewer:
                  dataset_name=None, 
                  nickname=None, 
                  custom_embeddings=None, 
+                 clustering_method='umap',
                  num_dims=2):
         """
         Initialize the FiftyOneDatasetViewer object
@@ -37,6 +38,7 @@ class FiftyOneDatasetViewer:
             param: dataset_name (str): Name of existing FiftyOne dataset to load
             param: nickname (str): Optional nickname for the dataset
             param: custom_embeddings (np.ndarray): Custom embeddings to use for visualization
+            param: clustering_method (str): Clustering method for visualization (umap, pca, tsne)
             param: num_dims (int): Number of dimensions for UMAP visualization
         """  
         self.image_dir = image_dir
@@ -44,6 +46,7 @@ class FiftyOneDatasetViewer:
         self.image_path_column = image_path_column
         self.feature_columns = feature_columns or []
         self.custom_embeddings = custom_embeddings
+        self.clustering_method = clustering_method
         self.num_dims = num_dims
         
         # Determine dataset name
@@ -178,16 +181,15 @@ class FiftyOneDatasetViewer:
     def create_visualization(self, embeddings):
         """Create UMAP visualization"""
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        self.brain_key = f"{self.dataset_name}_umap_{timestamp}"
+        self.brain_key = f"{self.dataset_name}_{self.clustering_method}_{timestamp}"
 
         return fob.compute_visualization(
             self.dataset,
             embeddings=embeddings,
             num_dims=self.num_dims,
-            method="umap",
+            method=self.clustering_method,  # umap, pca, tsne
             brain_key=self.brain_key,
             verbose=True,
-            seed=51,
         )
 
     def process_dataset(self):
@@ -259,6 +261,9 @@ def main():
     parser.add_argument('--feature_columns', type=str, nargs='+',
                         help='Column names in dataframe to add as features')
     
+    parser.add_argument('--clustering_method', type=str, default='umap', choices=['umap', 'pca', 'tsne'],
+                        help='Clustering method for visualization (umap, pca, tsne)')
+    
     parser.add_argument('--num_dims', type=int, default=2, choices=[2, 3],
                         help='Number of dimensions for UMAP visualization')
 
@@ -289,7 +294,8 @@ def main():
         # Load images from directory
         viewer = FiftyOneDatasetViewer(image_dir=args.image_dir, 
                                        nickname=args.nickname,
-                                       num_dims=args.num_dims)
+                                       num_dims=args.num_dims,
+                                       clustering_method=args.clustering_method)
         
     elif args.dataframe:
         # Load dataframe from file
@@ -313,8 +319,8 @@ def main():
             image_path_column=args.image_path_column,
             feature_columns=args.feature_columns,
             nickname=args.nickname,
-            num_dims=args.num_dims
-        )
+            clustering_method=args.clustering_method,
+            num_dims=args.num_dims)
     else:
         if args.dataset_name not in fo.list_datasets():
             raise ValueError(f"Dataset not found: {args.dataset_name}")

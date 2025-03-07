@@ -10,41 +10,45 @@ from PIL import Image
 
 import supervision as sv
 
-random.seed(42)
-
 
 # ----------------------------------------------------------------------------------------------------------------------
 # Classes
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-class DetectionToClassifier:
-    def __init__(self, dataset_path=None, output_dir=None, yolo_dataset=None):
+class YOLORegionCropper:
+    def __init__(self, dataset_path, output_dir=None, dataset_name=None):
         """
-        Initialize the DetectionToClassifier with either a dataset path or a YOLODataset object.
+        Initialize the YOLORegionCropper with a dataset path.
         
-        :param dataset_path: Path to the YAML dataset configuration file (optional if yolo_dataset provided)
+        :param dataset_path: Path to the YAML dataset configuration file
         :param output_dir: Directory where the classification dataset will be saved
-        :param yolo_dataset: YOLODataset object (optional if dataset_path provided)
+        :param dataset_name: Name for the output dataset folder (default: "Cropped_Dataset")
         """
-        self.classes = None
-        self.dataset = None
+        # Path to YAML dataset configuration file
         self.dataset_path = dataset_path
-        self.train_paths = []
-        self.valid_paths = []
-        self.num_datasets = None
-        self.yolo_dataset = yolo_dataset
+        # Dataset (parsed from YAML)
+        self.dataset_data = None
+        # List of class names
+        self.classes = None
+        
+        # Paths to train, validation, and test folders in the dataset
+        self.train_path = None
+        self.valid_path = None
+        self.test_path = None
+        
+        # Source dataset (Supervision Detection Dataset)
+        self.src_dataset = None
 
-        self.detection_dataset = None
-
+        # Determine output directory
+        folder_name = dataset_name if dataset_name else "Cropped_Dataset"
+        
         if output_dir:
-            self.output_dir = f"{output_dir}/Crops"
+            self.output_dir = f"{output_dir}/{folder_name}"
         else:
-            # If no output_dir and using yolo_dataset, create in the yolo dataset directory
-            if yolo_dataset:
-                self.output_dir = f"{yolo_dataset.dataset_dir}/Crops"
-            else:
-                raise ValueError("Either output_dir or yolo_dataset must be provided")
+            # Use the directory containing the dataset.yaml
+            dataset_dir = os.path.dirname(os.path.abspath(dataset_path))
+            self.output_dir = f"{dataset_dir}/{folder_name}"
 
     def load_dataset(self):
         """
@@ -52,172 +56,118 @@ class DetectionToClassifier:
         
         :return: None
         """
-        # If we have a YOLODataset object, extract info from it
-        if self.yolo_dataset:
-            self.classes = self.yolo_dataset.classes
-            
-            # Create train/val paths based on the YOLODataset structure
-            train_dir = os.path.join(self.yolo_dataset.dataset_dir, 'images/train')
-            val_dir = os.path.join(self.yolo_dataset.dataset_dir, 'images/val') 
-            
-            self.train_paths = [train_dir]
-            self.valid_paths = [val_dir]
-            self.num_datasets = 1
-            
-        # Otherwise use the dataset path
-        elif self.dataset_path:
-            if not os.path.exists(self.dataset_path):
-                raise FileNotFoundError("Dataset not found.")
+        if not os.path.exists(self.dataset_path):
+            raise FileNotFoundError("Dataset not found.")
 
-            with open(self.dataset_path, 'r') as file:
-                self.dataset = yaml.safe_load(file)
+        with open(self.dataset_path, 'r') as file:
+            self.dataset_data = yaml.safe_load(file)
 
-            self.classes = self.dataset['names']
+        self.classes = self.dataset_data['names']
 
-            # Process train paths
-            if isinstance(self.dataset.get('train'), str):
-                self.train_paths = [self.dataset['train']]
-            elif isinstance(self.dataset.get('train'), list):
-                self.train_paths = self.dataset['train']
+        # Process train path
+        if isinstance(self.dataset_data.get('train'), str):
+            self.train_path = self.dataset_data['train']
+        elif isinstance(self.dataset_data.get('train'), list) and len(self.dataset_data['train']) > 0:
+            self.train_path = self.dataset_data['train'][0]  # Take the first train path if multiple exist
 
-            # Process validation paths
-            if isinstance(self.dataset.get('val'), str):
-                self.valid_paths = [self.dataset['val']]
-            elif isinstance(self.dataset.get('val'), list):
-                self.valid_paths = self.dataset['val']
+        # Process validation path - check both 'val' and 'valid' keys
+        if isinstance(self.dataset_data.get('val'), str):
+            self.valid_path = self.dataset_data['val']
+        elif isinstance(self.dataset_data.get('val'), list) and len(self.dataset_data['val']) > 0:
+            self.valid_path = self.dataset_data['val'][0]
+        elif isinstance(self.dataset_data.get('valid'), str):
+            self.valid_path = self.dataset_data['valid']
+        elif isinstance(self.dataset_data.get('valid'), list) and len(self.dataset_data['valid']) > 0:
+            self.valid_path = self.dataset_data['valid'][0]
 
-            # Total number of datasets
-            self.num_datasets = max(len(self.train_paths), len(self.valid_paths))
-        else:
-            raise ValueError("Either dataset_path or yolo_dataset must be provided")
+        # Process test path
+        if isinstance(self.dataset_data.get('test'), str):
+            self.test_path = self.dataset_data['test']
+        elif isinstance(self.dataset_data.get('test'), list) and len(self.dataset_data['test']) > 0:
+            self.test_path = self.dataset_data['test'][0]
 
-        # Create all the sub folders
+        # Create all the sub folders (YOLO Image Classification Dataset format)
         for split in ['train', 'val', 'test']:
             for name in self.classes:
                 os.makedirs(f"{self.output_dir}/{split}/{name}", exist_ok=True)
 
-    def load_detection_dataset_from_yolo_dataset(self):
+    def convert_dataset(self):
         """
-        Load detection dataset from a YOLODataset object.
-        
+        Load detection dataset from train, validation, and test paths.
+
         :return: None
         """
-        images = {}
-        annotations = {}
-        
-        # Process data from the YOLODataset
-        grouped_data = self.yolo_dataset.data.groupby('image_path')
-        
-        for image_path, group in tqdm(grouped_data, desc="Loading from YOLODataset"):
-            try:
-                # Load the image
-                image = cv2.imread(image_path)
-                if image is None:
-                    print(f"Warning: Could not load image {image_path}")
-                    continue
-                    
-                # Store the image
-                images[image_path] = image
-                
-                # Process annotations
-                xyxy_list = []
-                class_id_list = []
-                
-                for _, row in group.iterrows():
-                    # Get annotation coordinates
-                    x1 = row[self.yolo_dataset.standard_columns['x']]
-                    y1 = row[self.yolo_dataset.standard_columns['y']]
-                    w = row[self.yolo_dataset.standard_columns['width']]
-                    h = row[self.yolo_dataset.standard_columns['height']]
-                    
-                    x2 = x1 + w
-                    y2 = y1 + h
-                    
-                    xyxy_list.append([x1, y1, x2, y2])
-                    
-                    # Get class ID
-                    class_name = row[self.yolo_dataset.standard_columns['label']]
-                    class_id = self.yolo_dataset.class_to_id.get(class_name, 0)
-                    class_id_list.append(class_id)
-                
-                # Create annotation object
-                annotation = sv.Detections(
-                    xyxy=np.array(xyxy_list),
-                    class_id=np.array(class_id_list)
-                )
-                
-                # Store annotations
-                annotations[image_path] = annotation
-                
-            except Exception as e:
-                print(f"Error processing {image_path}: {str(e)}")
-        
-        # Create the detection dataset
-        self.detection_dataset = sv.DetectionDataset(
-            classes=self.classes,
-            images=images,
-            annotations=annotations
-        )
-        
-        print(f"NOTE: Loaded dataset from YOLODataset - {len(self.detection_dataset)} detections found")
-
-    def load_detection_dataset(self, index):
-        """
-        Load detection dataset, handling cases where train or valid datasets might be missing.
-
-        :param index: Index of the dataset to load
-        :return: None
-        """
-        # If we're using a YOLODataset, use the specialized method
-        if self.yolo_dataset:
-            self.load_detection_dataset_from_yolo_dataset()
-            return
-        
         images = {}
         annotations = {}
 
         # Load train dataset if available
-        if index < len(self.train_paths):
-            train_path = self.train_paths[index]
-            images_path = f"{train_path}/images" if not train_path.endswith("images") else train_path
+        if self.train_path:
+            images_path = f"{self.train_path}/images" if not self.train_path.endswith("images") else self.train_path
             labels_path = images_path.replace('images', 'labels')
             try:
+                # Create a Supervision Detection Dataset from YOLO format
                 train = sv.DetectionDataset.from_yolo(
                     images_directory_path=images_path,
                     annotations_directory_path=labels_path,
                     data_yaml_path=self.dataset_path,
                 )
+                # Update images and annotations
                 images.update(train.images)
                 annotations.update(train.annotations)
+                print(f"Added {len(train.images)} images from train dataset")
+                
             except Exception as e:
-                print(f"Warning: Failed to load train dataset at index {index}. Error: {str(e)}")
+                print(f"Warning: Failed to load train dataset. Error: {str(e)}")
 
-        # Load valid dataset if available
-        if index < len(self.valid_paths):
-            valid_path = self.valid_paths[index]
-            images_path = f"{valid_path}/images" if not valid_path.endswith("images") else valid_path
+        # Load validation dataset if available
+        if self.valid_path:
+            # Handle paths that might use 'valid' or 'val'
+            images_path = f"{self.valid_path}/images" if not self.valid_path.endswith("images") else self.valid_path
             labels_path = images_path.replace('images', 'labels')
             try:
+                # Create a Supervision Detection Dataset from YOLO format
                 valid = sv.DetectionDataset.from_yolo(
                     images_directory_path=images_path,
                     annotations_directory_path=labels_path,
                     data_yaml_path=self.dataset_path,
                 )
+                # Update images and annotations
                 images.update(valid.images)
                 annotations.update(valid.annotations)
+                
+                print(f"Added {len(valid.images)} images from validation dataset")
             except Exception as e:
-                print(f"Warning: Failed to load valid dataset at index {index}. Error: {str(e)}")
+                print(f"Warning: Failed to load validation dataset. Error: {str(e)}")
+
+        # Load test dataset if available
+        if self.test_path:
+            images_path = f"{self.test_path}/images" if not self.test_path.endswith("images") else self.test_path
+            labels_path = images_path.replace('images', 'labels')
+            try:
+                # Create a Supervision Detection Dataset from YOLO format
+                test = sv.DetectionDataset.from_yolo(
+                    images_directory_path=images_path,
+                    annotations_directory_path=labels_path,
+                    data_yaml_path=self.dataset_path,
+                )
+                # Update images and annotations
+                images.update(test.images)
+                annotations.update(test.annotations)
+                
+                print(f"Added {len(test.images)} images from test dataset")
+            except Exception as e:
+                print(f"Warning: Failed to load test dataset. Error: {str(e)}")
 
         # Check if any data was loaded
         if not images or not annotations:
-            raise ValueError(f"No data could be loaded for index {index}. Please check your dataset paths.")
+            raise ValueError("No data could be loaded. Please check your dataset paths.")
 
         # Create the detection dataset
-        self.detection_dataset = sv.DetectionDataset(classes=self.classes,
-                                                     images=images,
-                                                     annotations=annotations)
+        self.src_dataset = sv.DetectionDataset(classes=self.classes,
+                                               images=images,
+                                               annotations=annotations)
 
-        print(f"NOTE: Loaded dataset - {len(self.detection_dataset)} detections found")
+        print(f"NOTE: Loaded dataset - {len(self.src_dataset)} detections found")
 
     def extract_crop(self, image, xyxy):
         """
@@ -282,12 +232,15 @@ class DetectionToClassifier:
 
         :return: None
         """
+        # Count to track crops created
+        total_crops = 0
+
         # Loop through all the images in the detection dataset
-        for image_path, image in tqdm(self.detection_dataset.images.items(), desc="Creating crops"):
+        for image_path, image in tqdm(self.src_dataset.images.items(), desc="Creating crops"):
 
             # Get the image basename, corresponding detections
             image_name = os.path.basename(image_path).split(".")[0]
-            detections = self.detection_dataset.annotations[image_path]
+            detections = self.src_dataset.annotations[image_path]
 
             # Loop through detections, crop, and then save in split folder
             for i, (xyxy, class_id) in enumerate(zip(detections.xyxy, detections.class_id)):
@@ -299,9 +252,12 @@ class DetectionToClassifier:
                 crop = self.extract_crop(image, xyxy)
 
                 if crop is not None:
-                    class_name = self.detection_dataset.classes[class_id]
+                    class_name = self.src_dataset.classes[class_id]
                     crop_name = f"{class_name}_{i}_{image_name}.jpeg"
                     self.save_crop(split, class_name, crop_name, crop)
+                    total_crops += 1
+
+        print(f"Created {total_crops} crops from {len(self.src_dataset.images)} images")
 
     def write_classification_yaml(self):
         """
@@ -342,22 +298,18 @@ class DetectionToClassifier:
 
     def process_dataset(self):
         """
-        Main execution method that loads datasets and creates classification crops.
+        Main execution method that loads dataset and creates classification crops.
 
         :return: None
         """
-        # Load the data.yaml file or YOLODataset
+        # Load the data.yaml file
         self.load_dataset()
 
-        if self.yolo_dataset:
-            # Use the YOLODataset object directly
-            self.load_detection_dataset(0)  # Index doesn't matter, will use yolo_dataset
-            self.create_crops()
-        else:
-            # Loop through each of the datasets, crop bboxes
-            for i in range(self.num_datasets):
-                self.load_detection_dataset(i)
-                self.create_crops()
+        # Convert the dataset to Supervision format
+        self.convert_dataset()
+        
+        # Create crops from the Supervision dataset
+        self.create_crops()
 
         # Create the classification dataset YAML file
         self.write_classification_yaml()
@@ -376,22 +328,28 @@ def main():
 
     :return: None
     """
-    parser = argparse.ArgumentParser(description="Create a classification dataset from a detection dataset")
+    parser = argparse.ArgumentParser(description="Create a classification from an existing detection dataset")
 
     parser.add_argument("--dataset_path", type=str, required=True,
                         help="Path to the detection dataset's data.yaml file")
 
-    parser.add_argument("--output_dir", type=str, required=True,
-                        help="Path to the output directory for the classification dataset")
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Path to the output directory for the classification dataset (optional)")
+                        
+    parser.add_argument("--dataset_name", type=str, default=None,
+                        help="Name for the output dataset folder (default: 'Cropped_Dataset')")
 
     args = parser.parse_args()
 
     try:
         # Run the conversion process
-        converter = DetectionToClassifier(dataset_path=args.dataset_path, 
-                                          output_dir=args.output_dir)
+        converter = YOLORegionCropper(
+            dataset_path=args.dataset_path,
+            output_dir=args.output_dir,
+            dataset_name=args.dataset_name
+        )
+        # Run the conversion process
         converter.process_dataset()
-        print("NOTE: Process completed successfully")
         print("Done.")
         
     except FileNotFoundError as e:

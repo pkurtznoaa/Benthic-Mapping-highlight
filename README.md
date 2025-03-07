@@ -1,11 +1,11 @@
-# tator-tools
+# 🥔 tator-tools 🛠️
 
 A library for automating detection within benthic habitats (for finding rocks, coral, and other benthic features). This library revolves around Tator.
 
 ## Tator Algorithms
 
 <details>
-<summary>For production deployment in Tator</summary>
+<summary>For production deployment in Tator (Mark T.)</summary>
 
 ### Installation
 
@@ -36,7 +36,7 @@ python Algorithms/app.py
 
 </details>
 
-## `tator_tools`
+# `tator_tools`
 
 For local testing and debugging algorithms before deployment in Tator. Also useful for data visualization.
 
@@ -59,15 +59,19 @@ conda install cudatoolkit=11.8 -c nvidia/label/cuda-11.8.0 -y
 uv pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 --extra-index-url https://download.pytorch.org/whl/cu118
 
 conda install ffmpeg
+
+# FiftyOne Plugins
+fiftyone plugins download https://github.com/jacobmarks/clustering-plugin
 ```
 
 ### Classes
 
 #### MediaDownloader
 
-The `MediaDownloader` class is used to download, convert, and extract frames from videos in TATOR.
+<details>
+<summary>Example Usage</summary>
 
-##### Example Usage
+The `MediaDownloader` class is used to download, convert, and extract frames from videos in TATOR.
 
 ```python
 from tator_tools.download_media import MediaDownloader
@@ -83,14 +87,16 @@ downloader = MediaDownloader(
 media_ids = ["123456", "78910"]
 downloader.download_data(media_ids, convert=False, extract=True, every_n_seconds=1.0)
 ```
+</details>
 
 #### DatasetDownloader
+
+<details>
+<summary>Example Usage</summary>
 
 The `DatasetDownloader` class is used to download frames / images and their labels from TATOR, which can be used to
 create YOLO-formatted datasets. This class expects the encoded search string obtained from the Export Data utility 
 offered in Tator's UI.
-
-##### Example Usage
 
 ```python
 from tator_tools.download_labeled_data import DatasetDownloader
@@ -104,6 +110,7 @@ downloader = DatasetDownloader(
     dataset_name="your_dataset_name",               # Output Directory Name
     output_dir="path/to/output",                    # Output Directory
     label_field="your_label_field",                 # "ScientificName", "Label", (or a list of fields)
+    download_width=1024,                            # Width of downloaded image (maintains aspect ratio)
 )
 
 # Download the data and create the dataset
@@ -114,13 +121,15 @@ downloader.display_sample()
 
 df = downloader.as_dataframe()  # as_dict()
 ```
+</details>
 
 #### YOLODataset
 
+<details>
+<summary>Example Usage</summary>
+
 The `YOLODataset` class is used to create a YOLO-formatted dataset for object detection. It takes a pandas DataFrame 
 with annotation data and generates the necessary directory structure, labels, and configuration files.
-
-##### Example Usage
 
 ```python
 import pandas as pd
@@ -142,29 +151,36 @@ dataset = YOLODataset(
 # Process the dataset to create the YOLO-formatted dataset
 dataset.process_dataset(move_images=False)  # Makes a copy of the images instead of moving them
 ```
+</details>
 
-#### DetectionToClassifier
+#### YOLORegionCropper
 
-The `DetectionToClassifier` class is used to convert detection datasets into classification datasets by extracting crops from detection bounding boxes and organizing them into train/val/test splits by class.
+<details>
+<summary>Example Usage</summary>
 
-##### Example Usage
+The `YOLORegionCropper` class is used to convert detection datasets into classification datasets by extracting crops from detection bounding boxes and organizing them into train/val/test splits by class.
 
 ```python
-from tator_tools.detection_to_classification import DetectionToClassifier
+from tator_tools.yolo_crop_regions import YOLORegionCropper
 
-# Initialize the converter with the path to the detection dataset's data.yaml file and the output directory
-converter = DetectionToClassifier(dataset_path="path/to/detection/data.yaml", output_dir="path/to/output")
+# Initialize the converter with the path to the detection / segmentation dataset's data.yaml file and the 
+# desired output directory. The class will create a YOLO-formatted image classification dataset.
+cropper = YOLORegionCropper(dataset_path="path/to/detection/data.yaml", 
+                            output_dir="path/to/output",
+                            dataset_name="Cropped_Dataset")
 
 # Process the dataset to create classification crops
-converter.process_dataset()
+cropper.process_dataset()
 ```
+</details>
 
 #### FiftyOneDatasetViewer
 
+<details>
+<summary>Example Usage</summary>
+
 The `FiftyOneDatasetViewer` class is used to create a FiftyOne dataset from a directory of images and generate a UMAP 
 visualization of the dataset. This can be run from command line or in a notebook.
-
-##### Example Usage
 
 ```python
 from tator_tools.fiftyone_clustering import FiftyOneDatasetViewer
@@ -174,14 +190,15 @@ viewer = FiftyOneDatasetViewer(image_dir="path/to/images")
 
 # Process the dataset to create the FiftyOne dataset and generate the UMAP visualization
 viewer.process_dataset()
-
 ```
+</details>
 
 #### ModelTrainer
 
-The `ModelTrainer` class is used to train a model using a YOLO-formatted dataset.
+<details>
+<summary>Example Usage</summary>
 
-##### Example Usage
+The `ModelTrainer` class is used to train a model using a YOLO-formatted dataset.
 
 ```python
 from tator_tools.model_training import ModelTrainer
@@ -189,7 +206,7 @@ from tator_tools.model_training import ModelTrainer
 # Initialize the trainer with the required parameters
 trainer = ModelTrainer(
     training_data=f"{dataset.dataset_dir}\\data.yaml",
-    weights="yolov8n.pt",                                       # See ultralytics website for models (8.3.0)
+    weights="yolov8n.pt",                     
     output_dir=f"{dataset.dataset_dir}\\Training",
     task=dataset.task,
     epochs=10,
@@ -204,12 +221,14 @@ trainer = ModelTrainer(
 trainer.train_model()
 trainer.evaluate_model()
 ```
+</details>
 
 #### VideoInferencer
 
-The `VideoInferencer` class is used to perform inference on video files using a pre-trained model.
+<details>
+<summary>Example Usage</summary>
 
-##### Example Usage
+The `VideoInferencer` class is used to perform inference on video files using a pre-trained model.
 
 ```python
 from tator_tools.inference_video import VideoInferencer
@@ -224,3 +243,4 @@ inferencer = VideoInferencer(
 # Perform inference on the video
 inferencer.inference()
 ```
+</details>
