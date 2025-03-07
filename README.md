@@ -66,10 +66,8 @@ fiftyone plugins download https://github.com/jacobmarks/clustering-plugin
 
 ### Classes
 
-#### MediaDownloader
-
 <details>
-<summary>Example Usage</summary>
+<summary>MediaDownloader</summary>
 
 The `MediaDownloader` class is used to download, convert, and extract frames from videos in TATOR.
 
@@ -89,10 +87,8 @@ downloader.download_data(media_ids, convert=False, extract=True, every_n_seconds
 ```
 </details>
 
-#### DatasetDownloader
-
 <details>
-<summary>Example Usage</summary>
+<summary>DatasetDownloader</summary>
 
 The `DatasetDownloader` class is used to download frames / images and their labels from TATOR, which can be used to
 create YOLO-formatted datasets. This class expects the encoded search string obtained from the Export Data utility 
@@ -123,10 +119,8 @@ df = downloader.as_dataframe()  # as_dict()
 ```
 </details>
 
-#### YOLODataset
-
 <details>
-<summary>Example Usage</summary>
+<summary>YOLODataset</summary>
 
 The `YOLODataset` class is used to create a YOLO-formatted dataset for object detection. It takes a pandas DataFrame 
 with annotation data and generates the necessary directory structure, labels, and configuration files.
@@ -153,10 +147,8 @@ dataset.process_dataset(move_images=False)  # Makes a copy of the images instead
 ```
 </details>
 
-#### YOLORegionCropper
-
 <details>
-<summary>Example Usage</summary>
+<summary>YOLORegionCropper</summary>
 
 The `YOLORegionCropper` class is used to convert detection datasets into classification datasets by extracting crops from detection bounding boxes and organizing them into train/val/test splits by class.
 
@@ -174,10 +166,8 @@ cropper.process_dataset()
 ```
 </details>
 
-#### FiftyOneDatasetViewer
-
 <details>
-<summary>Example Usage</summary>
+<summary>FiftyOneDatasetViewer</summary>
 
 The `FiftyOneDatasetViewer` class is used to create a FiftyOne dataset from a directory of images and generate a UMAP 
 visualization of the dataset. This can be run from command line or in a notebook.
@@ -193,10 +183,8 @@ viewer.process_dataset()
 ```
 </details>
 
-#### ModelTrainer
-
 <details>
-<summary>Example Usage</summary>
+<summary>ModelTrainer</summary>
 
 The `ModelTrainer` class is used to train a model using a YOLO-formatted dataset.
 
@@ -223,10 +211,8 @@ trainer.evaluate_model()
 ```
 </details>
 
-#### VideoInferencer
-
 <details>
-<summary>Example Usage</summary>
+<summary>VideoInferencer</summary>
 
 The `VideoInferencer` class is used to perform inference on video files using a pre-trained model.
 
@@ -244,3 +230,4 @@ inferencer = VideoInferencer(
 inferencer.inference()
 ```
 </details>
+
