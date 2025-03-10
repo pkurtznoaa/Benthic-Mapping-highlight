@@ -20,13 +20,14 @@ import supervision as sv
 
 class YOLODataset:
     """
-    Class to create a YOLO-formatted dataset for object detection.
+    Class to create a YOLO-formatted dataset for image clasissification, object detection, instance segmentation.
     Takes a pandas DataFrame with annotation data and generates the necessary directory structure,
     labels, and configuration files.
 
-    Required DataFrame columns:
-    - label: class name for the object
-    - x, y, width, height: bounding box coordinates (can be absolute or normalized)
+    DataFrame columns:
+    - label: class name for the object (optional)
+    - x, y, width, height: bounding box coordinates (optional, can be absolute or normalized)
+    - polygon: list of polygon coordinates (optional, for segmentation)
     - image_path: path to the image file
     - image_name: filename of the image
     """
@@ -40,7 +41,7 @@ class YOLODataset:
         :param dataset_name: name of the dataset (subdirectory will be created)
         :param train_ratio: train/val split ratio (default: 0.8)
         :param test_ratio: test split ratio (default: 0) - if > 0, train_ratio becomes train ratio
-        :param task: task type ('detect' or 'segment')
+        :param task: task type ('classify', 'detect', 'segment')
         """
         # Define the minimal set of required columns
         needed_columns = ['label', 'x', 'y', 'width', 'height', 'image_path', 'image_name', 'polygon']
@@ -51,6 +52,7 @@ class YOLODataset:
         if missing_columns:
             raise ValueError(f"DataFrame is missing required columns: {missing_columns}")
         
+        has_labels = data['label'].notnull().any()
         has_polygon = data['polygon'].notnull().any()
         has_x = data['x'].notnull().any()
         has_y = data['y'].notnull().any()
@@ -59,13 +61,20 @@ class YOLODataset:
         
         tasks = []
         
+        if not has_labels:
+            raise ValueError("DataFrame must contain 'label' column for class names")
+        
         # Check if polygon values are present
         if has_polygon:
-            tasks.extend(['segment', 'detect'])
+            tasks.extend(['classify', 'detect', 'segment'])
             
         # Check if bounding box values are present
         elif has_x and has_y and has_width and has_height:
-            tasks.append('detect')
+            tasks.extend(['classify', 'detect'])
+            
+        # There are only class labels
+        elif has_labels:
+            tasks.append('classify')
         
         # Set the task based on the available data
         if task in tasks:

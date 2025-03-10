@@ -20,7 +20,7 @@ import supervision as sv
 class YOLORegionCropper:
     def __init__(self, dataset_path, output_dir=None, dataset_name=None, format_class_names=False):
         """
-        Initialize the YOLORegionCropper with a dataset path.
+        Initialize the YOLORegionCropper with a dataset path. YOLORegionCropper is used to create a classification dataset from an existing detection or segmentation dataset.
         
         :param dataset_path: Path to the YAML dataset configuration file
         :param output_dir: Directory where the classification dataset will be saved

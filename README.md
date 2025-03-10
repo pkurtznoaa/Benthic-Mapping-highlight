@@ -91,17 +91,17 @@ downloader.download_data(media_ids, convert=False, extract=True, every_n_seconds
 </details>
 
 <details>
-<summary>DatasetDownloader</summary>
+<summary>QueryDownloader</summary>
 
-The `DatasetDownloader` class is used to download frames / images and their labels from TATOR, which can be used to
+The `QueryDownloader` class is used to download frames / images and their labels from TATOR, which can later be used to
 create YOLO-formatted datasets. This class expects the encoded search string obtained from the Export Data utility 
 offered in Tator's UI.
 
 ```python
-from tator_tools.download_labeled_data import DatasetDownloader
+from tator_tools.download_query_data import QueryDownloader
 
 # Initialize the downloader with the required parameters
-downloader = DatasetDownloader(
+downloader = QueryDownloader(
     api_token="your_api_token",
     project_id=123,
     search_string="your_encoded_search_string",     # See Tator Metadata -> Export Data utility
