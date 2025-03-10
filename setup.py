@@ -15,10 +15,11 @@ setup(
         'tator',
         'ultralytics==8.3.0',
         'supervision==0.25.0',
+        'scikit-learn',
         'gradio==5.17.0',
         'fiftyone',
         'umap-learn>=0.5',
-        'yolo-tiling>=0.0.11',
+        'yolo-tiling>=0.0.12',
         'ipykernel',
         'ipywidgets'
     ]

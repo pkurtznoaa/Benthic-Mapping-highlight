@@ -25,6 +25,7 @@ class FiftyOneDatasetViewer:
                  dataset_name=None, 
                  nickname=None, 
                  custom_embeddings=None, 
+                 clustering_method='umap',
                  num_dims=2):
         """
         Initialize the FiftyOneDatasetViewer object
@@ -37,6 +38,7 @@ class FiftyOneDatasetViewer:
             param: dataset_name (str): Name of existing FiftyOne dataset to load
             param: nickname (str): Optional nickname for the dataset
             param: custom_embeddings (np.ndarray): Custom embeddings to use for visualization
+            param: clustering_method (str): Clustering method for visualization (umap, pca, tsne)
             param: num_dims (int): Number of dimensions for UMAP visualization
         """  
         self.image_dir = image_dir
@@ -44,6 +46,7 @@ class FiftyOneDatasetViewer:
         self.image_path_column = image_path_column
         self.feature_columns = feature_columns or []
         self.custom_embeddings = custom_embeddings
+        self.clustering_method = clustering_method
         self.num_dims = num_dims
         
         # Determine dataset name
@@ -79,6 +82,33 @@ class FiftyOneDatasetViewer:
         if not filepaths:
             raise ValueError("No valid image files found")
 
+        # Add standard fields to dataset schema
+        self.dataset.add_sample_field("file_extension", fo.StringField)
+        self.dataset.add_sample_field("relative_path", fo.StringField)
+        self.dataset.add_sample_field("creation_date", fo.DateTimeField)
+        self.dataset.add_sample_field("modification_date", fo.DateTimeField)
+        self.dataset.add_sample_field("mean_color", fo.VectorField)
+        self.dataset.add_sample_field("mean_brightness", fo.VectorField)
+        if self.custom_embeddings is not None:
+            self.dataset.add_sample_field("embedding", fo.VectorField)
+
+        # Add dataframe feature fields to schema
+        if self.dataframe is not None and self.feature_columns:
+            for col in self.feature_columns:
+                if col in self.dataframe.columns:
+                    dtype = self.dataframe[col].dtype
+                    if np.issubdtype(dtype, np.number):
+                        if np.issubdtype(dtype, np.integer):
+                            self.dataset.add_sample_field(col, fo.IntField)
+                        else:
+                            self.dataset.add_sample_field(col, fo.FloatField)
+                    elif np.issubdtype(dtype, np.datetime64):
+                        self.dataset.add_sample_field(col, fo.DateTimeField)
+                    elif np.issubdtype(dtype, np.bool_):
+                        self.dataset.add_sample_field(col, fo.BooleanField)
+                    else:
+                        self.dataset.add_sample_field(col, fo.StringField)
+
         samples = []
         for idx, filepath in enumerate(tqdm(filepaths, desc="Processing images")):
             img = cv2.imread(filepath)
@@ -101,8 +131,8 @@ class FiftyOneDatasetViewer:
             sample["relative_path"] = os.path.relpath(filepath, os.path.dirname(filepath))
             sample["creation_date"] = datetime.fromtimestamp(file_stats.st_ctime)
             sample["modification_date"] = datetime.fromtimestamp(file_stats.st_mtime)
-            sample["mean_color"] = img.mean(axis=(0, 1)).tolist()
-            sample["mean_brightness"] = img.mean()
+            sample["mean_color"] = img.mean(axis=(0, 1))
+            sample["mean_brightness"] = [float(img.mean())]
             
             # Add features from dataframe if available
             if self.dataframe is not None and self.feature_columns:
@@ -115,34 +145,12 @@ class FiftyOneDatasetViewer:
                     if col in self.dataframe.columns:
                         value = self.dataframe.iloc[df_idx][col]
                         sample[col] = value
+                        
+            # Add embedding if available
+            if self.custom_embeddings is not None and idx < len(self.custom_embeddings):
+                sample["embedding"] = self.custom_embeddings[idx]
 
             samples.append(sample)
-
-        # Add standard fields to dataset schema
-        self.dataset.add_sample_field("file_extension", fo.StringField)
-        self.dataset.add_sample_field("relative_path", fo.StringField)
-        self.dataset.add_sample_field("creation_date", fo.DateTimeField)
-        self.dataset.add_sample_field("modification_date", fo.DateTimeField)
-        self.dataset.add_sample_field("mean_color", fo.VectorField)
-        self.dataset.add_sample_field("mean_brightness", fo.FloatField)
-        
-        # Add dataframe feature fields to schema
-        if self.dataframe is not None and self.feature_columns:
-            for col in self.feature_columns:
-                if col in self.dataframe.columns:
-                    # Determine field type based on dataframe column type
-                    dtype = self.dataframe[col].dtype
-                    if np.issubdtype(dtype, np.number):
-                        if np.issubdtype(dtype, np.integer):
-                            self.dataset.add_sample_field(col, fo.IntField)
-                        else:
-                            self.dataset.add_sample_field(col, fo.FloatField)
-                    elif np.issubdtype(dtype, np.datetime64):
-                        self.dataset.add_sample_field(col, fo.DateTimeField)
-                    elif np.issubdtype(dtype, np.bool_):
-                        self.dataset.add_sample_field(col, fo.BooleanField)
-                    else:
-                        self.dataset.add_sample_field(col, fo.StringField)
 
         self.dataset.add_samples(samples)
 
@@ -178,16 +186,15 @@ class FiftyOneDatasetViewer:
     def create_visualization(self, embeddings):
         """Create UMAP visualization"""
         timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        self.brain_key = f"{self.dataset_name}_umap_{timestamp}"
+        self.brain_key = f"{self.dataset_name}_{self.clustering_method}_{timestamp}"
 
         return fob.compute_visualization(
             self.dataset,
             embeddings=embeddings,
             num_dims=self.num_dims,
-            method="umap",
+            method=self.clustering_method,  # umap, pca, tsne
             brain_key=self.brain_key,
             verbose=True,
-            seed=51,
         )
 
     def process_dataset(self):
@@ -259,6 +266,9 @@ def main():
     parser.add_argument('--feature_columns', type=str, nargs='+',
                         help='Column names in dataframe to add as features')
     
+    parser.add_argument('--clustering_method', type=str, default='umap', choices=['umap', 'pca', 'tsne'],
+                        help='Clustering method for visualization (umap, pca, tsne)')
+    
     parser.add_argument('--num_dims', type=int, default=2, choices=[2, 3],
                         help='Number of dimensions for UMAP visualization')
 
@@ -289,7 +299,8 @@ def main():
         # Load images from directory
         viewer = FiftyOneDatasetViewer(image_dir=args.image_dir, 
                                        nickname=args.nickname,
-                                       num_dims=args.num_dims)
+                                       num_dims=args.num_dims,
+                                       clustering_method=args.clustering_method)
         
     elif args.dataframe:
         # Load dataframe from file
@@ -313,8 +324,8 @@ def main():
             image_path_column=args.image_path_column,
             feature_columns=args.feature_columns,
             nickname=args.nickname,
-            num_dims=args.num_dims
-        )
+            clustering_method=args.clustering_method,
+            num_dims=args.num_dims)
     else:
         if args.dataset_name not in fo.list_datasets():
             raise ValueError(f"Dataset not found: {args.dataset_name}")

@@ -9,13 +9,14 @@ from tqdm import tqdm
 import concurrent.futures
 from functools import partial
 
-import pandas as pd
-import supervision as sv
-import matplotlib.pyplot as plt
-import numpy as np
-from PIL import Image
-
 import tator
+
+import numpy as np
+import pandas as pd
+from PIL import Image
+import matplotlib.pyplot as plt
+
+import supervision as sv
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -23,7 +24,7 @@ import tator
 # ----------------------------------------------------------------------------------------------------------------------
 
 
-class DatasetDownloader:
+class QueryDownloader:
     def __init__(self,
                  api_token: str,
                  project_id: int,
@@ -192,7 +193,7 @@ class DatasetDownloader:
                 frame = q_dict['frame']
                 image_name = f"{media}_{frame}.jpg"
                 image_width = None
-                image_height = None     # TODO
+                image_height = None
             else:
                 print(f"WARNING: Query object is not a media or localization\nType:{type(q_type)}")
                 continue
@@ -334,19 +335,30 @@ class DatasetDownloader:
                                        (self.data['frame'] == item['frame'])].iloc[0]
                 
                 # Calculate dimensions maintaining aspect ratio if download_width is specified
-                if self.download_width and frame_data['image_width'] and frame_data['image_height']:
-                    original_width = frame_data['image_width']
-                    original_height = frame_data['image_height']
-                    # Calculate height to maintain aspect ratio
-                    height = int(original_height * (self.download_width / original_width))
-                    scale = f"{self.download_width}x{height}"
+                if self.download_width:
+                    if frame_data['image_width'] and frame_data['image_height']:
+                        # Use the existing dimensions
+                        original_width = frame_data['image_width']
+                        original_height = frame_data['image_height']
+                        # Calculate height to maintain aspect ratio
+                        width = self.download_width
+                        height = int(original_height * (self.download_width / original_width))
+                    else:
+                        # Calculate the new dimensions using default aspect ratio (1.33)
+                        width = self.download_width
+                        height = int(self.download_width / 1.33)
+                elif frame_data['image_width'] and frame_data['image_height']:
+                    # Just use the original dimensions
+                    width = frame_data['image_width']
+                    height = frame_data['image_height']
                 else:
-                    # Use original dimensions
-                    scale = "1024x768"
+                    # Use default dimensions
+                    width = 1024
+                    height = 768
                 
                 # Get the image from Tator at the specified resolution
                 temp = self.api.get_frame(id=item['media'],
-                                          force_scale=scale,
+                                          force_scale=f"{width}x{height}",
                                           frames=[int(item['frame'])])
 
                 # Move the image to the correct directory
@@ -358,6 +370,15 @@ class DatasetDownloader:
                     print(f"Retrying download for media {item['media']}, frame {item['frame']} again...")
                 else:
                     print(f"Error downloading {item['image_path']}: {str(e)}")
+                    
+    def calculate_scale(self, width, height):
+        """Calculate the scale factor to maintain aspect ratio."""
+        if self.download_width:
+            # Calculate height to maintain aspect ratio
+            height = int(height * (self.download_width / width))
+            return self.download_width, height
+        else:
+            return width, height
         
     def download_data(self):
         """
@@ -443,7 +464,7 @@ class DatasetDownloader:
 # ----------------------------------------------------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Download images and labels from TATOR")
+    parser = argparse.ArgumentParser(description="Download queried images and labels from TATOR")
 
     parser.add_argument("--api_token", type=str, required=True,
                         default=os.getenv('TATOR_TOKEN'),
@@ -482,14 +503,14 @@ def main():
             label_field = label_field[0]  # If only one field provided, convert from list to string
         
         # Download the data
-        downloader = DatasetDownloader(api_token=args.api_token,
-                                       project_id=args.project_id,
-                                       search_string=args.search_string,
-                                       frac=args.frac,
-                                       dataset_name=args.dataset_name,
-                                       output_dir=output_dir,
-                                       label_field=label_field,
-                                       download_width=args.download_width)
+        downloader = QueryDownloader(api_token=args.api_token,
+                                     project_id=args.project_id,
+                                     search_string=args.search_string,
+                                     frac=args.frac,
+                                     dataset_name=args.dataset_name,
+                                     output_dir=output_dir,
+                                     label_field=label_field,
+                                     download_width=args.download_width)
 
         # Download the data
         downloader.download_data()

@@ -1,6 +1,5 @@
 import os
-import glob
-import yaml
+import re
 import shutil
 import argparse
 from tqdm.auto import tqdm
@@ -22,18 +21,20 @@ import supervision as sv
 
 class YOLODataset:
     """
-    Class to create a YOLO-formatted dataset for object detection.
+    Class to create a YOLO-formatted dataset for image clasissification, object detection, instance segmentation.
     Takes a pandas DataFrame with annotation data and generates the necessary directory structure,
     labels, and configuration files.
 
-    Required DataFrame columns:
-    - label: class name for the object
-    - x, y, width, height: bounding box coordinates (can be absolute or normalized)
+    DataFrame columns:
+    - label: class name for the object (optional)
+    - x, y, width, height: bounding box coordinates (optional, can be absolute or normalized)
+    - polygon: list of polygon coordinates (optional, for segmentation)
     - image_path: path to the image file
     - image_name: filename of the image
     """
 
-    def __init__(self, data, output_dir, dataset_name="yolo_dataset", train_ratio=0.8, test_ratio=0, task='detect'):
+    def __init__(self, data, output_dir, dataset_name="yolo_dataset", train_ratio=0.8, test_ratio=0, task='detect',
+                 format_class_names=False):
         """
         Initialize the YOLO dataset.
 
@@ -42,7 +43,8 @@ class YOLODataset:
         :param dataset_name: name of the dataset (subdirectory will be created)
         :param train_ratio: train/val split ratio (default: 0.8)
         :param test_ratio: test split ratio (default: 0) - if > 0, train_ratio becomes train ratio
-        :param task: task type ('detect' or 'segment')
+        :param task: task type ('classify', 'detect', 'segment')
+        :param format_class_names: Whether to format class names (removes special characters)
         """
         # Define the minimal set of required columns
         needed_columns = ['label', 'x', 'y', 'width', 'height', 'image_path', 'image_name', 'polygon']
@@ -53,6 +55,7 @@ class YOLODataset:
         if missing_columns:
             raise ValueError(f"DataFrame is missing required columns: {missing_columns}")
         
+        has_labels = data['label'].notnull().any()
         has_polygon = data['polygon'].notnull().any()
         has_x = data['x'].notnull().any()
         has_y = data['y'].notnull().any()
@@ -61,13 +64,20 @@ class YOLODataset:
         
         tasks = []
         
+        if not has_labels:
+            raise ValueError("DataFrame must contain 'label' column for class names")
+        
         # Check if polygon values are present
         if has_polygon:
-            tasks.extend(['segment', 'detect'])
+            tasks.extend(['classify', 'detect', 'segment'])
             
         # Check if bounding box values are present
         elif has_x and has_y and has_width and has_height:
-            tasks.append('detect')
+            tasks.extend(['classify', 'detect'])
+            
+        # There are only class labels
+        elif has_labels:
+            tasks.append('classify')
         
         # Set the task based on the available data
         if task in tasks:
@@ -86,18 +96,35 @@ class YOLODataset:
         self.test_ratio = test_ratio
         self.classes = None
         self.class_to_id = None
-
-        # Create dataset directories with new structure using absolute paths
-        os.makedirs(os.path.join(self.dataset_dir, "train", "images"), exist_ok=True)
-        os.makedirs(os.path.join(self.dataset_dir, "train", "labels"), exist_ok=True)
-        os.makedirs(os.path.join(self.dataset_dir, "valid", "images"), exist_ok=True)
-        os.makedirs(os.path.join(self.dataset_dir, "valid", "labels"), exist_ok=True)
         
-        # Create test directories if test_ratio > 0
-        if self.test_ratio > 0:
-            os.makedirs(os.path.join(self.dataset_dir, "test", "images"), exist_ok=True)
-            os.makedirs(os.path.join(self.dataset_dir, "test", "labels"), exist_ok=True)
+        if format_class_names:
+            # Format class names to remove special characters
+            # Replace special characters in all category labels with empty string
+            self.data['label'] = self.data['label'].apply(lambda x: re.sub(r'[<>:"/\\|?* ]', '', x))
             
+        # Check if and label values are empty
+        if self.data['label'].isnull().any():
+            # Replace with "Unverified" if label is missing
+            self.data['label'].fillna("Unverified", inplace=True)
+
+        # Create dataset directories based on task
+        if self.task == 'classify':
+            # For classification, we need a different directory structure with class folders
+            # We'll create these folders after determining classes in split_dataset
+            os.makedirs(os.path.join(self.dataset_dir, "train"), exist_ok=True)
+            os.makedirs(os.path.join(self.dataset_dir, "val"), exist_ok=True)
+            if self.test_ratio > 0:
+                os.makedirs(os.path.join(self.dataset_dir, "test"), exist_ok=True)
+        else:
+            # Original directory structure for detection/segmentation
+            os.makedirs(os.path.join(self.dataset_dir, "train", "images"), exist_ok=True)
+            os.makedirs(os.path.join(self.dataset_dir, "train", "labels"), exist_ok=True)
+            os.makedirs(os.path.join(self.dataset_dir, "valid", "images"), exist_ok=True)
+            os.makedirs(os.path.join(self.dataset_dir, "valid", "labels"), exist_ok=True)
+            if self.test_ratio > 0:
+                os.makedirs(os.path.join(self.dataset_dir, "test", "images"), exist_ok=True)
+                os.makedirs(os.path.join(self.dataset_dir, "test", "labels"), exist_ok=True)
+                        
     def split_dataset(self):
         """
         Split the dataset into training, validation, and test sets based on train_ratio and test_ratio.
@@ -138,33 +165,69 @@ class YOLODataset:
             ext = os.path.splitext(image)[-1]
             # Create a mask for the image
             mask = self.data['image_name'] == image
-            # Update paths for training set using absolute paths
-            image_paths = os.path.join(self.dataset_dir, "train", "images", image)
-            self.data.loc[mask, 'yolo_image_path'] = image_paths
-            label_paths = os.path.join(self.dataset_dir, "train", "labels", image.replace(ext, '.txt'))
-            self.data.loc[mask, 'yolo_label_path'] = label_paths
+            
+            # Update paths based on task
+            if self.task == 'classify':
+                # For classification, images go in class-specific folders
+                class_name = self.data.loc[mask, 'label'].iloc[0]  # Get class name for this image
+                class_dir = os.path.join(self.dataset_dir, "train", class_name)
+                os.makedirs(class_dir, exist_ok=True)
+                image_paths = os.path.join(class_dir, image)
+                self.data.loc[mask, 'yolo_image_path'] = image_paths
+                # No label files for classification
+                self.data.loc[mask, 'yolo_label_path'] = ''
+            else:
+                # Original behavior for detection/segmentation
+                image_paths = os.path.join(self.dataset_dir, "train", "images", image)
+                self.data.loc[mask, 'yolo_image_path'] = image_paths
+                label_paths = os.path.join(self.dataset_dir, "train", "labels", image.replace(ext, '.txt'))
+                self.data.loc[mask, 'yolo_label_path'] = label_paths
 
         for image in val_images:
             # Get the image extension
             ext = os.path.splitext(image)[-1]
             # Create a mask for the image
             mask = self.data['image_name'] == image
-            # Update paths for validation set using absolute paths
-            image_paths = os.path.join(self.dataset_dir, "valid", "images", image)
-            self.data.loc[mask, 'yolo_image_path'] = image_paths
-            label_paths = os.path.join(self.dataset_dir, "valid", "labels", image.replace(ext, '.txt'))
-            self.data.loc[mask, 'yolo_label_path'] = label_paths
+            
+            # Update paths based on task
+            if self.task == 'classify':
+                # For classification, images go in class-specific folders
+                class_name = self.data.loc[mask, 'label'].iloc[0]  # Get class name for this image
+                class_dir = os.path.join(self.dataset_dir, "val", class_name)
+                os.makedirs(class_dir, exist_ok=True)
+                image_paths = os.path.join(class_dir, image)
+                self.data.loc[mask, 'yolo_image_path'] = image_paths
+                # No label files for classification
+                self.data.loc[mask, 'yolo_label_path'] = ''
+            else:
+                # Original behavior for detection/segmentation
+                image_paths = os.path.join(self.dataset_dir, "valid", "images", image)
+                self.data.loc[mask, 'yolo_image_path'] = image_paths
+                label_paths = os.path.join(self.dataset_dir, "valid", "labels", image.replace(ext, '.txt'))
+                self.data.loc[mask, 'yolo_label_path'] = label_paths
             
         for image in test_images:
             # Get the image extension
             ext = os.path.splitext(image)[-1]
             # Create a mask for the image
             mask = self.data['image_name'] == image
-            # Update paths for test set using absolute paths
-            image_paths = os.path.join(self.dataset_dir, "test", "images", image)
-            self.data.loc[mask, 'yolo_image_path'] = image_paths
-            label_paths = os.path.join(self.dataset_dir, "test", "labels", image.replace(ext, '.txt'))
-            self.data.loc[mask, 'yolo_label_path'] = label_paths
+            
+            # Update paths based on task
+            if self.task == 'classify':
+                # For classification, images go in class-specific folders
+                class_name = self.data.loc[mask, 'label'].iloc[0]  # Get class name for this image
+                class_dir = os.path.join(self.dataset_dir, "test", class_name)
+                os.makedirs(class_dir, exist_ok=True)
+                image_paths = os.path.join(class_dir, image)
+                self.data.loc[mask, 'yolo_image_path'] = image_paths
+                # No label files for classification
+                self.data.loc[mask, 'yolo_label_path'] = ''
+            else:
+                # Original behavior for detection/segmentation
+                image_paths = os.path.join(self.dataset_dir, "test", "images", image)
+                self.data.loc[mask, 'yolo_image_path'] = image_paths
+                label_paths = os.path.join(self.dataset_dir, "test", "labels", image.replace(ext, '.txt'))
+                self.data.loc[mask, 'yolo_label_path'] = label_paths
             
         # Print split information
         print(f"Dataset split: {len(train_images)} train, {len(val_images)} valid, {len(test_images)} test images")
@@ -175,25 +238,37 @@ class YOLODataset:
 
         :return: None
         """
-        self.classes = self.data['label'].unique().tolist()
+        # Get the class names
+        self.classes = sorted(self.data['label'].unique().tolist())
+        
+        # Check if there are any special characters in the class names
+        if any(re.search(r'[<>:"/\\|?*]', name) for name in self.classes):
+            raise ValueError("Class names cannot contain special characters; use format_class_names to format them.")
+        
         self.class_to_id = {class_name: i for i, class_name in enumerate(self.classes)}
 
         # Create data.yaml with support for test set and absolute paths
         yaml_path = os.path.join(self.dataset_dir, "data.yaml")
         with open(yaml_path, 'w') as f:
-            f.write(f"train: {os.path.join(self.dataset_dir, 'train', 'images')}\n")
-            f.write(f"val: {os.path.join(self.dataset_dir, 'valid', 'images')}\n")
+            f.write(f"path: {self.dataset_dir}\n")
+            f.write(f"train: {os.path.join(self.dataset_dir, 'train')}\n")
+            f.write(f"val: {os.path.join(self.dataset_dir, 'valid')}\n")
             
             # Add test path if test_ratio > 0
             if self.test_ratio > 0:
-                f.write(f"test: {os.path.join(self.dataset_dir, 'test', 'images')}\n")
+                f.write(f"test: {os.path.join(self.dataset_dir, 'test')}\n")
                 
             f.write(f"nc: {len(self.classes)}\n")
-            f.write(f"names: {self.classes}\n")
+            f.write(f"names: {list(range(len(self.classes)))}\n")
+            
+            # Write class names as dictionary for better yaml format
+            f.write("names:\n")
+            for i, class_name in enumerate(self.classes):
+                f.write(f"  {i}: {class_name}\n")
 
     def write_labels(self):
         """
-        Write YOLO-formatted labels to text files based on the task type.
+        Write YOLO-formatted labels based on the task type.
 
         :return: None
         """
@@ -201,6 +276,8 @@ class YOLODataset:
             self.write_detection_labels()
         elif self.task == 'segment':
             self.write_segmentation_labels()
+        elif self.task == 'classify':
+            self.write_classification_dataset()
         else:
             raise ValueError(f"Unsupported task type: {self.task}")
 
@@ -277,6 +354,42 @@ class YOLODataset:
             # Save annotations
             with open(label_path, 'w') as f:
                 f.write('\n'.join(yolo_annotations))
+                
+    def write_classification_dataset(self):
+        """
+        Create directories for each class in train, valid, and test splits.
+        For classification, we don't write label files, just organize images into class folders.
+
+        :return: None
+        """
+        # Get unique class names
+        self.classes = sorted(self.data['label'].unique().tolist())
+        self.class_to_id = {class_name: i for i, class_name in enumerate(self.classes)}
+        
+        print(f"Creating classification dataset with {len(self.classes)} classes")
+        
+        # Create directories for each class in each split
+        for split in ['train', 'valid', 'test']:
+            split_dir = os.path.join(self.dataset_dir, split)
+            if os.path.exists(split_dir):
+                for class_name in self.classes:
+                    os.makedirs(os.path.join(split_dir, class_name), exist_ok=True)
+        
+        # Count images per class for reporting
+        class_counts = {class_name: {'train': 0, 'val': 0, 'test': 0} for class_name in self.classes}
+        
+        # Count images in each class/split based on destination paths
+        for _, row in self.data.drop_duplicates(subset=['image_path']).iterrows():
+            if 'train' in row['yolo_image_path']:
+                class_counts[row['label']]['train'] += 1
+            elif 'valid' in row['yolo_image_path']:
+                class_counts[row['label']]['val'] += 1
+            elif 'test' in row['yolo_image_path']:
+                class_counts[row['label']]['test'] += 1
+        
+        # Print class distribution
+        for class_name, counts in class_counts.items():
+            print(f"  {class_name}: train={counts['train']}, val={counts['val']}, test={counts['test']}")
         
     def copy_images(self, move_instead_of_copy=False, num_threads=None):
         """
@@ -364,8 +477,18 @@ class YOLODataset:
 
                 # Get annotations for this image
                 annotations_df = self.data[self.data['image_path'] == image_path]
+                
+                if self.task == 'classify':
+                    detections = None
+                    labels = None
+                    
+                    # Show an image with the label
+                    image_name = os.path.basename(image_path)
+                    label = annotations_df['label'].iloc[0]
+                    title = f"{image_name} - {label}"
+                    image = cv2.putText(image, title, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
 
-                if self.task == 'detect':
+                elif self.task == 'detect':
                     # Create detections for bounding boxes
                     boxes = []
                     class_ids = []
