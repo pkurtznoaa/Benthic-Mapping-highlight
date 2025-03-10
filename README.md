@@ -142,7 +142,7 @@ dataset = YOLODataset(
     dataset_name="YOLODataset_Detection",           # Output Directoy /Dataset Name -> train/valid/test, data.yaml 
     train_ratio=0.8                                 # Training ratio -> train / valid
     test_ratio=0.1,                                 # Testing ratio -> (train / valid) / test
-    task='detect'                                   # 'detect' or 'segment' (the latter needs polygons)
+    task='detect'                                   # 'classify', 'detect' or 'segment'
 )
 
 # Process the dataset to create the YOLO-formatted dataset
@@ -181,6 +181,15 @@ from tator_tools.fiftyone_clustering import FiftyOneDatasetViewer
 # Initialize the viewer with the path to the directory containing images
 viewer = FiftyOneDatasetViewer(image_dir="path/to/images")
 
+# Or, initialize the viewer with a pandas dataframe
+viewer = FiftyOneDatasetViewer(dataframe=pandas_df,
+                               image_path_column='Path',
+                               feature_columns=['feature 1', 'feature 2'],
+                               nickname='my_dataset',
+                               custom_embeddings=embeddings,  # Pass the pre-calculated embeddings, or None
+                               clustering_method='umap',      # umap, pca, tsne
+                               num_dims=2)                    # Number of dimensions for UMAP (2 or 3)
+
 # Process the dataset to create the FiftyOne dataset and generate the UMAP visualization
 viewer.process_dataset()
 ```
@@ -196,14 +205,16 @@ from tator_tools.model_training import ModelTrainer
 
 # Initialize the trainer with the required parameters
 trainer = ModelTrainer(
-    training_data=f"{dataset.dataset_dir}\\data.yaml",
-    weights="yolov8n.pt",                     
-    output_dir=f"{dataset.dataset_dir}\\Training",
-    task=dataset.task,
-    epochs=10,
+    training_data="path/to/training_data/",                    # Can be a classification dataset, or data.yaml
+    weights="yolov8n.pt",                                      # Model to start with, see ultralytics docs
+    output_dir="path/to/output_dir",
+    name="results",
+    task='classify',
+    epochs=100,
+    patience=10,
     half=True,
     imgsz=640,
-    single_cls=True,
+    single_cls=False,
     plots=True,
     batch=0.5,
 )
