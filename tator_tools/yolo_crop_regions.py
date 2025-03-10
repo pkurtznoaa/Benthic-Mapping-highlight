@@ -79,10 +79,11 @@ class YOLORegionCropper:
             special_characters = True
             
         # Format class names if specified
-        if special_characters and self.format_class_names:
-            self.classes = [re.sub(r'[<>:"/\\|?*]', '', name).strip() for name in self.classes]
-        else:
-            raise ValueError("Class names cannot contain special characters; use format_class_names to format them.")
+        if special_characters:
+            if self.format_class_names:
+                self.classes = [re.sub(r'[<>:"/\\|?*]', '', name).strip() for name in self.classes]
+            else:
+                raise ValueError("Class names cannot contain special characters use format_class_names to format them.")
         
         # Process train path
         if isinstance(self.dataset_data.get('train'), str):

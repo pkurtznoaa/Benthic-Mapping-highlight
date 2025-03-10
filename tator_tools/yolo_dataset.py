@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import argparse
 from tqdm.auto import tqdm
@@ -32,7 +33,8 @@ class YOLODataset:
     - image_name: filename of the image
     """
 
-    def __init__(self, data, output_dir, dataset_name="yolo_dataset", train_ratio=0.8, test_ratio=0, task='detect'):
+    def __init__(self, data, output_dir, dataset_name="yolo_dataset", train_ratio=0.8, test_ratio=0, task='detect',
+                 format_class_names=False):
         """
         Initialize the YOLO dataset.
 
@@ -42,6 +44,7 @@ class YOLODataset:
         :param train_ratio: train/val split ratio (default: 0.8)
         :param test_ratio: test split ratio (default: 0) - if > 0, train_ratio becomes train ratio
         :param task: task type ('classify', 'detect', 'segment')
+        :param format_class_names: Whether to format class names (removes special characters)
         """
         # Define the minimal set of required columns
         needed_columns = ['label', 'x', 'y', 'width', 'height', 'image_path', 'image_name', 'polygon']
@@ -93,6 +96,16 @@ class YOLODataset:
         self.test_ratio = test_ratio
         self.classes = None
         self.class_to_id = None
+        
+        if format_class_names:
+            # Format class names to remove special characters
+            # Replace special characters in all category labels with empty string
+            self.data['label'] = self.data['label'].apply(lambda x: re.sub(r'[<>:"/\\|?* ]', '', x))
+            
+        # Check if and label values are empty
+        if self.data['label'].isnull().any():
+            # Replace with "Unverified" if label is missing
+            self.data['label'].fillna("Unverified", inplace=True)
 
         # Create dataset directories with new structure using absolute paths
         os.makedirs(os.path.join(self.dataset_dir, "train", "images"), exist_ok=True)
@@ -104,7 +117,7 @@ class YOLODataset:
         if self.test_ratio > 0:
             os.makedirs(os.path.join(self.dataset_dir, "test", "images"), exist_ok=True)
             os.makedirs(os.path.join(self.dataset_dir, "test", "labels"), exist_ok=True)
-            
+                        
     def split_dataset(self):
         """
         Split the dataset into training, validation, and test sets based on train_ratio and test_ratio.
@@ -182,7 +195,13 @@ class YOLODataset:
 
         :return: None
         """
+        # Get the class names
         self.classes = self.data['label'].unique().tolist()
+        
+        # Check if there are any special characters in the class names
+        if any(re.search(r'[<>:"/\\|?*]', name) for name in self.classes):
+            raise ValueError("Class names cannot contain special characters; use format_class_names to format them.")
+        
         self.class_to_id = {class_name: i for i, class_name in enumerate(self.classes)}
 
         # Create data.yaml with support for test set and absolute paths
