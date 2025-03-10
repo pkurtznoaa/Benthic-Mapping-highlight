@@ -82,6 +82,33 @@ class FiftyOneDatasetViewer:
         if not filepaths:
             raise ValueError("No valid image files found")
 
+        # Add standard fields to dataset schema
+        self.dataset.add_sample_field("file_extension", fo.StringField)
+        self.dataset.add_sample_field("relative_path", fo.StringField)
+        self.dataset.add_sample_field("creation_date", fo.DateTimeField)
+        self.dataset.add_sample_field("modification_date", fo.DateTimeField)
+        self.dataset.add_sample_field("mean_color", fo.VectorField)
+        self.dataset.add_sample_field("mean_brightness", fo.VectorField)
+        if self.custom_embeddings is not None:
+            self.dataset.add_sample_field("embedding", fo.VectorField)
+
+        # Add dataframe feature fields to schema
+        if self.dataframe is not None and self.feature_columns:
+            for col in self.feature_columns:
+                if col in self.dataframe.columns:
+                    dtype = self.dataframe[col].dtype
+                    if np.issubdtype(dtype, np.number):
+                        if np.issubdtype(dtype, np.integer):
+                            self.dataset.add_sample_field(col, fo.IntField)
+                        else:
+                            self.dataset.add_sample_field(col, fo.FloatField)
+                    elif np.issubdtype(dtype, np.datetime64):
+                        self.dataset.add_sample_field(col, fo.DateTimeField)
+                    elif np.issubdtype(dtype, np.bool_):
+                        self.dataset.add_sample_field(col, fo.BooleanField)
+                    else:
+                        self.dataset.add_sample_field(col, fo.StringField)
+
         samples = []
         for idx, filepath in enumerate(tqdm(filepaths, desc="Processing images")):
             img = cv2.imread(filepath)
@@ -104,8 +131,8 @@ class FiftyOneDatasetViewer:
             sample["relative_path"] = os.path.relpath(filepath, os.path.dirname(filepath))
             sample["creation_date"] = datetime.fromtimestamp(file_stats.st_ctime)
             sample["modification_date"] = datetime.fromtimestamp(file_stats.st_mtime)
-            sample["mean_color"] = img.mean(axis=(0, 1)).tolist()
-            sample["mean_brightness"] = img.mean()
+            sample["mean_color"] = img.mean(axis=(0, 1))
+            sample["mean_brightness"] = [float(img.mean())]
             
             # Add features from dataframe if available
             if self.dataframe is not None and self.feature_columns:
@@ -118,34 +145,12 @@ class FiftyOneDatasetViewer:
                     if col in self.dataframe.columns:
                         value = self.dataframe.iloc[df_idx][col]
                         sample[col] = value
+                        
+            # Add embedding if available
+            if self.custom_embeddings is not None and idx < len(self.custom_embeddings):
+                sample["embedding"] = self.custom_embeddings[idx]
 
             samples.append(sample)
-
-        # Add standard fields to dataset schema
-        self.dataset.add_sample_field("file_extension", fo.StringField)
-        self.dataset.add_sample_field("relative_path", fo.StringField)
-        self.dataset.add_sample_field("creation_date", fo.DateTimeField)
-        self.dataset.add_sample_field("modification_date", fo.DateTimeField)
-        self.dataset.add_sample_field("mean_color", fo.VectorField)
-        self.dataset.add_sample_field("mean_brightness", fo.FloatField)
-        
-        # Add dataframe feature fields to schema
-        if self.dataframe is not None and self.feature_columns:
-            for col in self.feature_columns:
-                if col in self.dataframe.columns:
-                    # Determine field type based on dataframe column type
-                    dtype = self.dataframe[col].dtype
-                    if np.issubdtype(dtype, np.number):
-                        if np.issubdtype(dtype, np.integer):
-                            self.dataset.add_sample_field(col, fo.IntField)
-                        else:
-                            self.dataset.add_sample_field(col, fo.FloatField)
-                    elif np.issubdtype(dtype, np.datetime64):
-                        self.dataset.add_sample_field(col, fo.DateTimeField)
-                    elif np.issubdtype(dtype, np.bool_):
-                        self.dataset.add_sample_field(col, fo.BooleanField)
-                    else:
-                        self.dataset.add_sample_field(col, fo.StringField)
 
         self.dataset.add_samples(samples)
 
