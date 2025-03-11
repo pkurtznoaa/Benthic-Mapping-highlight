@@ -7,13 +7,11 @@ import traceback
 
 from tqdm import tqdm
 import concurrent.futures
-from functools import partial
 
 import tator
 
 import numpy as np
 import pandas as pd
-from PIL import Image
 import matplotlib.pyplot as plt
 
 import supervision as sv

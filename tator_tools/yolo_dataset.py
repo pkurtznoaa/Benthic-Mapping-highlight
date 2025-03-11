@@ -342,7 +342,15 @@ class YOLODataset:
                     normalized_points = row['polygon']
                     
                     # Flatten the list of coordinates and format for YOLO segmentation
-                    flattened_points = [coord for point in normalized_points for coord in point]
+                    flattened_points = []
+                    for point in normalized_points:
+                        for coord in point:
+                            # Convert to float if it's a string
+                            if isinstance(coord, str):
+                                flattened_points.append(float(coord))
+                            else:
+                                flattened_points.append(coord)
+                    
                     points_str = " ".join([f"{p:.6f}" for p in flattened_points])
                     yolo_annotation = f"{class_id} {points_str}"
                     yolo_annotations.append(yolo_annotation)
@@ -494,6 +502,11 @@ class YOLODataset:
                     class_ids = []
 
                     for _, row in annotations_df.iterrows():
+                        
+                        if 'x' not in row or 'y' not in row or 'width' not in row or 'height' not in row:
+                            print(f"Warning: No bounding box data for {row['image_name']}")
+                            continue
+                        
                         # Convert from normalized to pixel coordinates
                         x1 = int(row['x'] * img_width)
                         y1 = int(row['y'] * img_height)
@@ -519,7 +532,13 @@ class YOLODataset:
                     boxes = []
     
                     for _, row in annotations_df.iterrows():
-                        if not row['polygon'] or len(row['polygon']) == 0:
+                        
+                        if 'polygon' not in row:
+                            print(f"Warning: No polygon data for {row['image_name']}")
+                            continue
+                        
+                        elif len(row['polygon']) < 3:
+                            print(f"Warning: Not enough points for polygon in {row['image_name']}")
                             continue
 
                         # Convert list of coordinate pairs to numpy array 

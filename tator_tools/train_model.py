@@ -3,12 +3,14 @@ import glob
 import datetime
 import argparse
 import traceback
+from pathlib import Path 
 
 import numpy as np
 
 from ultralytics import YOLO
 from ultralytics import RTDETR
 import ultralytics.data.build as build
+import ultralytics.engine.validator as validator
 from ultralytics.data.dataset import YOLODataset
 
 
@@ -227,14 +229,20 @@ class ModelTrainer:
         print("Training completed.")
         return results
 
-    def evaluate_model(self):
+    def evaluate_model(self, set='test'):
         try:
+            # Modify the save directory (Path object)
+            save_dir = Path(self.output_dir) / self.name / set
+            validator.get_save_dir = lambda x: save_dir
+            
             self.target_model.val(
                 data=self.training_data,
-                split='test',
+                imgsz=self.imgsz,
+                split=set,
                 save_json=True,
                 plots=True
             )
+            
         except Exception as e:
             print(f"WARNING: Failed to evaluate model.\n{e}")
 
@@ -262,10 +270,10 @@ def main():
     parser.add_argument("--model_path", type=str, default="",
                         help="Path to the pre-trained model")
 
-    parser.add_argument("--root_dir", type=str, default=None,
-                        help="Root directory for the project")
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Output directory for the project")
 
-    parser.add_argument("--run_dir", type=str, default=None,
+    parser.add_argument("--name", type=str, default=None,
                         help="Directory to save run results")
 
     parser.add_argument("--task", type=str, default='detect',
@@ -310,8 +318,8 @@ def main():
             epochs=args.epochs,
             weights=args.weights,
             model_path=args.model_path,
-            root_dir=args.root_dir,
-            run_dir=args.run_dir,
+            output_dir=args.output_dir,
+            name=args.name,
             task=args.task,
             cache=args.cache,
             device=args.device,
