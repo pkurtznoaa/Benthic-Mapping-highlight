@@ -85,7 +85,8 @@ def stabilize_video(input_path, output_path):
         prev_pts = good_new.reshape(-1, 1, 2)
         prev_gray = curr_gray.copy()
 
-        out.write(img)
+        # Comment out or remove the following line to skip writing the optical flow visualization
+        # out.write(img)
 
     cap.release()
     out.release()
