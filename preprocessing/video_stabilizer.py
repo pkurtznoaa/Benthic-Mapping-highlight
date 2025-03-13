@@ -47,7 +47,7 @@ def stabilize_video(input_path, output_path):
     prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
     prev_pts = cv2.goodFeaturesToTrack(prev_gray, maxCorners=200, qualityLevel=0.01, minDistance=30, blockSize=3)
 
-    transforms = np.zeros((n_frames - 1, 3), np.float32)
+    transforms = np.zeros((max(n_frames - 1, 0), 3), np.float32)
     frames = []
 
     for i in range(n_frames - 1):
