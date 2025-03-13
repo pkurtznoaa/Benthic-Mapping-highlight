@@ -28,8 +28,7 @@ def stabilize_video(input_path, output_path):
     # Read input video
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
-        print("Error: Could not open video.")
-        exit()
+        raise ValueError(f"Error: Could not open video at {input_path}")
 
     # Get frame count
     n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
