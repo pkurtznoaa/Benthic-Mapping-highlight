@@ -33,6 +33,9 @@ def stabilize_video(input_path, output_path):
 
     # Get frame count
     n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if n_frames <= 1:
+        print("Error: Video must have more than one frame.")
+        exit()
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
