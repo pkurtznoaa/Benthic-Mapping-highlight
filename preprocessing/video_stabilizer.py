@@ -28,11 +28,13 @@ def stabilize_video(input_path, output_path):
     # Read input video
     cap = cv2.VideoCapture(input_path)
     if not cap.isOpened():
-        print("Error: Could not open video.")
-        exit()
+        raise ValueError(f"Error: Could not open video at {input_path}")
 
     # Get frame count
     n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if n_frames <= 1:
+        print("Error: Video must have more than one frame.")
+        exit()
     fps = cap.get(cv2.CAP_PROP_FPS)
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -45,7 +47,7 @@ def stabilize_video(input_path, output_path):
     prev_gray = cv2.cvtColor(prev, cv2.COLOR_BGR2GRAY)
     prev_pts = cv2.goodFeaturesToTrack(prev_gray, maxCorners=200, qualityLevel=0.01, minDistance=30, blockSize=3)
 
-    transforms = np.zeros((n_frames - 1, 3), np.float32)
+    transforms = np.zeros((max(n_frames - 1, 0), 3), np.float32)
     frames = []
 
     for i in range(n_frames - 1):
@@ -83,7 +85,8 @@ def stabilize_video(input_path, output_path):
         prev_pts = good_new.reshape(-1, 1, 2)
         prev_gray = curr_gray.copy()
 
-        out.write(img)
+        # Comment out or remove the following line to skip writing the optical flow visualization
+        # out.write(img)
 
     cap.release()
     out.release()
